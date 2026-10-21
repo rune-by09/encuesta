@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Encuesta</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;font-family:Arial,sans-serif}
+  body{background:#1e1b4b;color:#fff;min-height:100vh;padding:20px}
+  .pantalla{display:none;max-width:800px;margin:0 auto}
+  .pantalla.activa{display:block}
+  h1,h2{text-align:center;margin-bottom:16px}
+  .caja{background:#312e81;border-radius:10px;padding:20px;margin-bottom:16px}
+  label{display:block;margin-top:10px;font-size:.9rem}
+  input[type=text],input[type=password]{width:100%;padding:10px;border-radius:6px;border:2px solid transparent;margin-top:4px}
+  input.malo{border-color:#ef4444}
+  .error{color:#fca5a5;font-size:.85rem;min-height:1.1rem}
+  button{padding:10px 18px;margin:6px 4px;border:none;border-radius:6px;background:#facc15;cursor:pointer;font-weight:bold}
+  button:hover{background:#fde047}
+  .pregunta{background:#312e81;border-radius:10px;padding:16px;margin-bottom:12px}
+  .pregunta.sinresponder{border:2px solid #ef4444}
+  .pregunta p{font-weight:bold;margin-bottom:8px}
+  .opcion{display:block;padding:6px 4px;cursor:pointer}
+  .opcion input{margin-right:8px}
+  .centro{text-align:center}
+  #graficas{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+  .grafica{background:#fff;border-radius:10px;padding:12px;color:#000}
+  .grafica h3{font-size:.95rem;margin-bottom:8px}
+  .contador{text-align:center;margin-bottom:16px;font-size:1.1rem}
+</style>
+</head>
+<body>
+
+<!-- 1. REGISTRO -->
+<section id="registro" class="pantalla activa">
+  <h1>📋 Encuesta</h1>
+  <div class="caja">
+    <h2>Regístrate para contestar</h2>
+    <form id="formRegistro" novalidate>
+      <label for="nombre">Nombre</label>
+      <input type="text" id="nombre" placeholder="Nombre completo">
+      <div class="error" id="errNombre"></div>
+
+      <label for="matricula">Matrícula</label>
+      <input type="text" id="matricula" placeholder="Solo números">
+      <div class="error" id="errMatricula"></div>
+
+      <div class="centro">
+        <button type="submit">Comenzar encuesta</button>
+      </div>
+    </form>
+  </div>
+  <div class="centro">
+    <button onclick="mostrar('acceso')">🔒 Ver gráficas (administrador)</button>
+  </div>
+</section>
+
+<!-- 2. ENCUESTA (20 preguntas) -->
+<section id="encuesta" class="pantalla">
+  <h1>Encuesta</h1>
+  <p class="contador" id="saludo"></p>
+  <form id="formEncuesta" novalidate>
+    <div id="listaPreguntas"></div>
+    <div class="error centro" id="errEncuesta"></div>
+    <div class="centro">
+      <button type="submit">Enviar respuestas</button>
+    </div>
+  </form>
+</section>
+
+<!-- 3. CONTRASEÑA DEL ADMINISTRADOR -->
+<section id="acceso" class="pantalla">
+  <h1>🔒 Apartado privado</h1>
+  <div class="caja">
+    <p class="centro">Escribe la contraseña de administrador para ver las gráficas.</p>
+    <input type="password" id="claveAdmin" placeholder="Contraseña">
+    <div class="error centro" id="errClave"></div>
+    <div class="centro">
+      <button onclick="entrarGraficas()">Entrar</button>
+      <button onclick="mostrar('registro')">Volver</button>
+    </div>
+  </div>
+</section>
+
+<!-- 4. GRÁFICAS -->
+<section id="resultados" class="pantalla" style="max-width:1100px">
+  <h1>📊 Resultados de la encuesta</h1>
+  <p class="contador" id="totalPersonas"></p>
+  <div id="graficas"></div>
+  <div class="centro">
+    <button onclick="verGraficas(claveGuardada)">🔄 Actualizar</button>
+    <button onclick="salirGraficas()">Salir</button>
+  </div>
+</section>
+
+<script>
+const $ = id => document.getElementById(id);
+let persona = null;
+let charts = [];
+let claveGuardada = '';
+
+/* ---------- PREGUNTAS (deben ser iguales a las de la base de datos) ---------- */
+const preguntas = [
+  { t: '¿Cuántas horas al día usas el celular?', o: ['Menos de 2', 'De 2 a 4', 'De 4 a 6', 'Más de 6'] },
+  { t: '¿Cuál es tu red social favorita?', o: ['Instagram', 'TikTok', 'YouTube', 'X (Twitter)'] },
+  { t: '¿Con qué dispositivo estudias más?', o: ['Laptop', 'PC de escritorio', 'Celular', 'Tablet'] },
+  { t: '¿Cuántas horas duermes normalmente?', o: ['Menos de 5', '5 a 6', '7 a 8', 'Más de 8'] },
+  { t: '¿Cómo te transportas a la escuela?', o: ['Camión', 'Auto propio', 'Metro', 'A pie / bici'] },
+  { t: '¿Cuántas veces a la semana haces ejercicio?', o: ['Nunca', '1 o 2', '3 o 4', '5 o más'] },
+  { t: '¿Qué género de música prefieres?', o: ['Regional', 'Pop', 'Rock', 'Reguetón / Urbano'] },
+  { t: '¿Cuál es tu plataforma de música favorita?', o: ['Spotify', 'YouTube Music', 'Apple Music', 'Otra'] },
+  { t: '¿Qué tipo de videojuegos prefieres?', o: ['Acción', 'Deportes', 'Estrategia', 'No juego'] },
+  { t: '¿En qué plataforma juegas más?', o: ['PC', 'Consola', 'Celular', 'No juego'] },
+  { t: '¿Cuántas horas juegas a la semana?', o: ['0', '1 a 5', '6 a 15', 'Más de 15'] },
+  { t: '¿Dónde prefieres comer?', o: ['En casa', 'En la escuela', 'Comida rápida', 'Restaurante'] },
+  { t: '¿Qué bebida tomas más?', o: ['Agua', 'Refresco', 'Café', 'Jugo / Té'] },
+  { t: '¿Qué materia te gusta más?', o: ['Programación', 'Matemáticas', 'Idiomas', 'Otra'] },
+  { t: '¿Cómo prefieres estudiar?', o: ['Solo', 'En equipo', 'Con videos', 'Con asesorías'] },
+  { t: '¿Qué tan seguido usas inteligencia artificial?', o: ['Nunca', 'A veces', 'Casi diario', 'Todos los días'] },
+  { t: '¿Qué tipo de películas prefieres?', o: ['Acción', 'Comedia', 'Terror', 'Animación'] },
+  { t: '¿Cuál es tu estación del año favorita?', o: ['Primavera', 'Verano', 'Otoño', 'Invierno'] },
+  { t: '¿Prefieres trabajar en...?', o: ['Casa (remoto)', 'Oficina', 'Mixto', 'Aún no sé'] },
+  { t: '¿Cómo calificas tu experiencia en la escuela?', o: ['Excelente', 'Buena', 'Regular', 'Mala'] }
+];
+
+function mostrar(id){
+  document.querySelectorAll('.pantalla').forEach(p => p.classList.remove('activa'));
+  $(id).classList.add('activa');
+  window.scrollTo(0, 0);
+}
+
+/* ---------- REGISTRO ---------- */
+function marcar(campo, errId, msg){
+  $(errId).textContent = msg;
+  $(campo).classList.toggle('malo', msg !== '');
+  return msg === '';
+}
+function validarNombre(){
+  const v = $('nombre').value.trim();
+  let msg = '';
+  if (v === '') msg = 'El nombre no puede estar vacío.';
+  else if (v.length < 3) msg = 'Mínimo 3 caracteres.';
+  else if (v.length > 60) msg = 'Máximo 60 caracteres.';
+  else if (!/^[A-Za-zÁÉÍÓÚáéíóúÑñ ]+$/.test(v)) msg = 'Solo letras.';
+  return marcar('nombre', 'errNombre', msg);
+}
+function validarMatricula(){
+  const v = $('matricula').value.trim();
+  let msg = '';
+  if (v === '') msg = 'La matrícula no puede estar vacía.';
+  else if (!/^[0-9]+$/.test(v)) msg = 'Solo números.';
+  else if (v.length < 6 || v.length > 10) msg = 'Debe tener entre 6 y 10 dígitos.';
+  return marcar('matricula', 'errMatricula', msg);
+}
+$('nombre').addEventListener('input', validarNombre);
+$('matricula').addEventListener('input', validarMatricula);
+
+$('formRegistro').addEventListener('submit', async e => {
+  e.preventDefault();
+  const ok = [validarNombre(), validarMatricula()];
+  if (ok.includes(false)) return;
+
+  const matricula = $('matricula').value.trim();
+  let existe;
+  try {
+    existe = await yaContesto(matricula);
+  } catch (err) {
+    $('errMatricula').textContent = 'No hay conexión con el servidor. Espera unos segundos y reintenta.';
+    return;
+  }
+  if (existe){
+    $('errMatricula').textContent = 'Esta matrícula ya contestó la encuesta.';
+    $('matricula').classList.add('malo');
+    return;
+  }
+  persona = { nombre: $('nombre').value.trim(), matricula };
+  $('saludo').textContent = 'Hola, ' + persona.nombre + '. Contesta las 20 preguntas.';
+  dibujarPreguntas();
+  mostrar('encuesta');
+});
+
+/* ---------- ENCUESTA ---------- */
+function dibujarPreguntas(){
+  const cont = $('listaPreguntas');
+  cont.innerHTML = '';
+  preguntas.forEach((p, i) => {
+    const div = document.createElement('div');
+    div.className = 'pregunta';
+    div.id = 'preg' + i;
+    div.innerHTML = '<p>' + (i + 1) + '. ' + p.t + '</p>' +
+      p.o.map((op, j) =>
+        '<label class="opcion"><input type="radio" name="p' + i + '" value="' + j + '">' + op + '</label>'
+      ).join('');
+    cont.appendChild(div);
+  });
+  $('errEncuesta').textContent = '';
+}
+
+$('formEncuesta').addEventListener('submit', async e => {
+  e.preventDefault();
+  const respuestas = [];
+  let faltan = 0;
+  preguntas.forEach((p, i) => {
+    const sel = document.querySelector('input[name="p' + i + '"]:checked');
+    $('preg' + i).classList.toggle('sinresponder', !sel);
+    if (sel) respuestas.push(Number(sel.value)); else { respuestas.push(null); faltan++; }
+  });
+  if (faltan > 0){
+    $('errEncuesta').textContent = 'Faltan ' + faltan + ' pregunta(s) por contestar (marcadas en rojo).';
+    return;
+  }
+
+  const guardado = await guardarRespuestas(persona, respuestas);
+  if (!guardado){
+    $('errEncuesta').textContent = 'No se pudieron guardar las respuestas. Intenta de nuevo.';
+    return;
+  }
+  alert('¡Gracias por contestar la encuesta!');
+  $('formRegistro').reset();
+  persona = null;
+  mostrar('registro');
+});
+
+/* ---------- CONEXIÓN CON EL SERVIDOR ---------- */
+async function yaContesto(matricula){
+  const r = await fetch('/api/existe/' + matricula);
+  const d = await r.json();
+  return d.existe;
+}
+async function guardarRespuestas(p, respuestas){
+  try {
+    const r = await fetch('/api/guardar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nombre: p.nombre, matricula: p.matricula, respuestas })
+    });
+    return r.ok;
+  } catch (err) {
+    return false;
+  }
+}
+
+/* ---------- ADMINISTRADOR Y GRÁFICAS ---------- */
+$('claveAdmin').addEventListener('keydown', e => { if (e.key === 'Enter') entrarGraficas(); });
+
+async function entrarGraficas(){
+  await verGraficas($('claveAdmin').value);
+}
+function salirGraficas(){
+  claveGuardada = '';
+  charts.forEach(c => c.destroy());
+  charts = [];
+  $('graficas').innerHTML = '';
+  mostrar('registro');
+}
+
+async function verGraficas(clave){
+  let datos;
+  try {
+    const r = await fetch('/api/resultados', { headers: { 'x-clave': clave } });
+    if (r.status === 401){
+      $('errClave').textContent = 'Contraseña incorrecta.';
+      mostrar('acceso');
+      return;
+    }
+    if (!r.ok) throw new Error('error');
+    datos = await r.json();
+  } catch (err) {
+    $('errClave').textContent = 'No hay conexión con el servidor. Espera unos segundos y reintenta.';
+    mostrar('acceso');
+    return;
+  }
+  claveGuardada = clave;
+  $('errClave').textContent = '';
+  $('claveAdmin').value = '';
+
+  $('totalPersonas').textContent = 'Personas encuestadas: ' + datos.total + ' / 20';
+  charts.forEach(c => c.destroy());
+  charts = [];
+  const cont = $('graficas');
+  cont.innerHTML = '';
+
+  preguntas.forEach((p, i) => {
+    const conteo = p.o.map((_, j) => {
+      const fila = datos.votos.find(v => v.id_pregunta === i + 1 && v.opcion_numero === j);
+      return fila ? fila.votos : 0;
+    });
+
+    const caja = document.createElement('div');
+    caja.className = 'grafica';
+    caja.innerHTML = '<h3>' + (i + 1) + '. ' + p.t + '</h3><canvas id="g' + i + '"></canvas>';
+    cont.appendChild(caja);
+
+    charts.push(new Chart($('g' + i), {
+      type: 'bar',
+      data: {
+        labels: p.o,
+        datasets: [{
+          label: 'Respuestas',
+          data: conteo,
+          backgroundColor: ['#6366f1', '#facc15', '#ef4444', '#22c55e']
+        }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+      }
+    }));
+  });
+  mostrar('resultados');
+}
+</script>
+</body>
+</html>
